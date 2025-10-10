@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+.env/
+.ipynb_checkpoints/
+*.ipynb
+output/
+*.csv
+*.parquet
+*.joblib
+*.pkl
+*.tar
+*.gz
+*.zip
