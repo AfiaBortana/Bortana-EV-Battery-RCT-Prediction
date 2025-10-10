@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+*.pyo
 .venv/
 .env/
 .ipynb_checkpoints/
@@ -10,5 +11,5 @@ output/
 *.joblib
 *.pkl
 *.tar
-*.gz
 *.zip
+*.onnx
