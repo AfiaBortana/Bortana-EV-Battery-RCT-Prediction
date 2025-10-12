@@ -1,0 +1,20 @@
+name: OIDC check
+on:
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::383868855578:role/GitHubActionsOIDC-SageMaker
+          aws-region: ap-southeast-2
+
+      - name: Who am I?
+        run: aws sts get-caller-identity
