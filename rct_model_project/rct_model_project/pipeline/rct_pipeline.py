@@ -1,5 +1,7 @@
 # pipeline/rct_pipeline.py
-import os, boto3
+# SageMaker RCT Retraining Pipeline – CI/CD ready version
+
+import boto3
 from sagemaker import image_uris, Session
 from sagemaker.workflow.parameters import ParameterString
 from sagemaker.workflow.pipeline import Pipeline
@@ -9,88 +11,112 @@ from sagemaker.estimator import Estimator
 from sagemaker.model import Model
 from sagemaker.workflow.steps import TrainingStep, CreateModelStep
 
-# Endpoint step imports (SDK-flex)
+# ---------- Optional imports for endpoint deployment ----------
 HAVE_ENDPOINT_STEPS = False
-EndpointConfigStep = EndpointStep = None
+EndpointConfigStep = None
+EndpointStep = None
 try:
     from sagemaker.workflow.steps import CreateEndpointConfigStep, CreateEndpointStep  # type: ignore
-    EndpointConfigStep, EndpointStep = CreateEndpointConfigStep, CreateEndpointStep
+    EndpointConfigStep = CreateEndpointConfigStep
+    EndpointStep = CreateEndpointStep
     HAVE_ENDPOINT_STEPS = True
 except Exception:
     try:
-        from sagemaker.workflow.step_collections import EndpointConfigStep as _EPC, EndpointStep as _EPS  # type: ignore
-        EndpointConfigStep, EndpointStep = _EPC, _EPS
+        from sagemaker.workflow.step_collections import EndpointConfigStep as _EPCfg, EndpointStep as _EPStep  # type: ignore
+        EndpointConfigStep = _EPCfg
+        EndpointStep = _EPStep
         HAVE_ENDPOINT_STEPS = True
     except Exception:
-        pass
+        HAVE_ENDPOINT_STEPS = False
+# ----------------------------------------------------------------
 
-# ==== EDIT THESE ====
+# ===== USER CONFIG =====
 REGION = "ap-southeast-2"
-ROLE_ARN = "arn:aws:iam::383868855578:role/BortanaSageMakerExecutionRole"  # SageMaker execution role
+ROLE_ARN = "arn:aws:iam::383868855578:role/BortanaSageMakerExecutionRole"
 BUCKET = "bortana-sagemaker-analysis"
-TRAIN_S3 = "s3://bortana-sagemaker-analysis/bev2/processing_c/features/rct/train.csv"
 PIPELINE_NAME = "RCT-Retrain-Pipeline"
-ARTIFACT_PREFIX = "rct_model/artifacts"
+TRAIN_S3 = "s3://bortana-sagemaker-analysis/bev2/processing_c/features/rct/train.csv"
 ENDPOINT_NAME = "rct-realtime-endpoint"
-# =====================
+# =======================
 
+# Session setup
 boto_sess = boto3.Session(region_name=REGION)
 sm_sess = Session(boto_session=boto_sess)
-pipe_sess = PipelineSession(boto_session=boto_sess, sagemaker_client=sm_sess.sagemaker_client)
+pipeline_sess = PipelineSession(
+    boto_session=boto_sess,
+    sagemaker_client=sm_sess.sagemaker_client,
+)
 
-p_train = ParameterString(name="TrainDataS3Uri", default_value=TRAIN_S3)
-p_ep = ParameterString(name="EndpointName", default_value=ENDPOINT_NAME)
+# Parameters (for override during CI/CD)
+p_train_data = ParameterString(name="TrainDataS3Uri", default_value=TRAIN_S3)
+p_endpoint_name = ParameterString(name="EndpointName", default_value=ENDPOINT_NAME)
 
-xgb_img = image_uris.retrieve(framework="xgboost", region=REGION, version="1.7-1")
+# XGBoost built-in image
+xgb_image = image_uris.retrieve(framework="xgboost", region=REGION, version="1.7-1")
 
-est = Estimator(
-    image_uri=xgb_img,
-    role=ROLE_ARN,
+# Estimator
+estimator = Estimator(
+    image_uri=xgb_image,
+    role=ROLE_ARN,  # Explicit for CI/CD
     instance_count=1,
     instance_type="ml.m5.xlarge",
-    output_path=f"s3://{BUCKET}/{ARTIFACT_PREFIX}/",
-    sagemaker_session=pipe_sess,
+    output_path=f"s3://{BUCKET}/rct_model/artifacts/",
+    sagemaker_session=pipeline_sess,
     disable_profiler=True,
     max_run=3600,
 )
-est.set_hyperparameters(objective="reg:squarederror", num_round=100)
+estimator.set_hyperparameters(objective="reg:squarederror", num_round=100)
 
-train_input = TrainingInput(s3_data=p_train, content_type="text/csv")
-train_step = TrainingStep(name="TrainXGBModel", estimator=est, inputs={"train": train_input})
+# Channel input
+train_input = TrainingInput(s3_data=p_train_data, content_type="text/csv")
 
-model = Model(image_uri=xgb_img,
-              model_data=train_step.properties.ModelArtifacts.S3ModelArtifacts,
-              role=ROLE_ARN,
-              sagemaker_session=pipe_sess)
-create_model = CreateModelStep(name="CreateModel", model=model)
+# Pipeline steps
+train_step = TrainingStep(name="TrainXGBModel", estimator=estimator, inputs={"train": train_input})
 
-steps = [train_step, create_model]
+model = Model(
+    image_uri=xgb_image,
+    model_data=train_step.properties.ModelArtifacts.S3ModelArtifacts,
+    role=ROLE_ARN,
+    sagemaker_session=pipeline_sess,
+)
+create_model_step = CreateModelStep(name="CreateModel", model=model)
+
+steps = [train_step, create_model_step]
 if HAVE_ENDPOINT_STEPS and EndpointConfigStep and EndpointStep:
-    ep_cfg = EndpointConfigStep(name="CreateEndpointConfig",
-                                model_name=create_model.properties.ModelName,
-                                initial_instance_count=1,
-                                instance_type="ml.m5.large")
-    ep_step = EndpointStep(name="DeployOrUpdateEndpoint",
-                           endpoint_name=p_ep,
-                           endpoint_config_name=ep_cfg.properties.EndpointConfigName)
-    steps += [ep_cfg, ep_step]
-else:
-    print(" Endpoint classes not present in this SDK; pipeline will stop at CreateModel.")
+    ep_config_step = EndpointConfigStep(
+        name="CreateEndpointConfig",
+        model_name=create_model_step.properties.ModelName,
+        initial_instance_count=1,
+        instance_type="ml.m5.large",
+    )
+    ep_step = EndpointStep(
+        name="DeployOrUpdateEndpoint",
+        endpoint_name=p_endpoint_name,
+        endpoint_config_name=ep_config_step.properties.EndpointConfigName,
+    )
+    steps.extend([ep_config_step, ep_step])
 
-pipeline = Pipeline(name=PIPELINE_NAME,
-                    parameters=[p_train, p_ep],
-                    steps=steps,
-                    sagemaker_session=pipe_sess)
+# Assemble pipeline
+pipeline = Pipeline(
+    name=PIPELINE_NAME,
+    parameters=[p_train_data, p_endpoint_name],
+    steps=steps,
+    sagemaker_session=pipeline_sess,
+)
 
 def get_pipeline(session=None):
+    """Return the SageMaker Pipeline object."""
     return pipeline
 
+
+# ------------- MAIN (CI/CD entry point) -------------
 def main():
     print(f" Upserting pipeline: {PIPELINE_NAME}")
     pipeline.upsert(role_arn=ROLE_ARN)
-    print(" Upserted. Starting execution…")
+    print(" Upsert complete. Starting execution...")
     exe = pipeline.start(parameters={"TrainDataS3Uri": TRAIN_S3, "EndpointName": ENDPOINT_NAME})
-    print(f" Execution ARN: {exe.arn}")
+    print(f" Execution started: {exe.arn}")
+
 
 if __name__ == "__main__":
     main()
