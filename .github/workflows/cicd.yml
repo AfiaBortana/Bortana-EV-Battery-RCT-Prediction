@@ -11,7 +11,7 @@ permissions:
 
 env:
   AWS_REGION: ap-southeast-2
-  PIPELINE_ENTRY: pipeline/rct_pipeline.py
+  PIPELINE_ENTRY: rct_model_project/rct_model_project/pipeline/rct_pipeline.py
   PYTHON_VERSION: "3.11"
 
 jobs:
