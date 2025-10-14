@@ -6,13 +6,13 @@ on:
   workflow_dispatch:
 
 permissions:
-  id-token: write     # REQUIRED for OIDC
+  id-token: write
   contents: read
 
 env:
-  AWS_REGION: ap-southeast-2                 
-  PIPELINE_ENTRY: pipeline/rct_pipeline.py   
-  PYTHON_VERSION: "3.11"                     
+  AWS_REGION: ap-southeast-2
+  PIPELINE_ENTRY: pipeline/rct_pipeline.py
+  PYTHON_VERSION: "3.11"
 
 jobs:
   retrain-deploy:
@@ -24,8 +24,12 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::383868855578:role/GitHubActionsOIDC-SageMaker 
+          
+          role-to-assume: arn:aws:iam::383868855578:role/GitHubActionsOIDC-SageMaker
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Who am I? (sanity)
+        run: aws sts get-caller-identity
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -41,8 +45,7 @@ jobs:
           restore-keys: |
             pip-${{ runner.os }}-${{ env.PYTHON_VERSION }}-
 
-      # If you have a requirements.txt, install from it; otherwise install the minimum
-      - name: Install dependencies (requirements.txt if present)
+      - name: Install dependencies
         run: |
           if [ -f requirements.txt ]; then
             pip install -r requirements.txt
@@ -50,15 +53,8 @@ jobs:
             pip install "sagemaker<3" boto3 pandas numpy
           fi
 
-      # (Optional but recommended) quick import check to fail fast
-      - name: Sanity check import
-        run: python -c "import sys; print('Python OK:', sys.version)"
+      - name: Sanity check Python
+        run: python -c "import sys; import boto3; print('Python OK:', sys.version); print('boto3:', boto3.__version__)"
 
-      # Run your pipeline definition. It must create/start a SageMaker Pipeline execution.
-      # If your script accepts parameters (e.g. S3 input), pass them via env or CLI flags here.
       - name: Run SageMaker Pipeline
-        run: |
-          python "$PIPELINE_ENTRY"
-
-    
-      #   run: python pipeline/wait_for_pipeline.py --name RCTPipeline --fail-on-low-metric  
+        run: python "$PIPELINE_ENTRY"
