@@ -139,6 +139,7 @@ pipeline = Pipeline(
     sagemaker_session=pipeline_sess,
 )
 
+
 def get_pipeline(session=None):
     """Return the SageMaker Pipeline object for external callers (Studio/CI)."""
     return pipeline
