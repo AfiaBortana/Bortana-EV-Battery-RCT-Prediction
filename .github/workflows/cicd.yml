@@ -24,7 +24,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::383868855578:role/GitHubSageMakerRole   
+          role-to-assume: arn:aws:iam::383868855578:role/GitHubActionsOIDC-SageMaker 
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Set up Python
