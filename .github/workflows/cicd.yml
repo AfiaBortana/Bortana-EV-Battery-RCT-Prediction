@@ -60,8 +60,5 @@ jobs:
         run: |
           python "$PIPELINE_ENTRY"
 
-      # Optional: wait for the execution and fail if metrics are bad.
-      # Keep this commented until your script supports describe/wait & quality gates.
-      # - name: Wait for pipeline completion (optional)
-      #   run: python pipeline/wait_for_pipeline.py --name RCTPipeline --fail-on-low-metric  # example
-
+    
+      #   run: python pipeline/wait_for_pipeline.py --name RCTPipeline --fail-on-low-metric  
